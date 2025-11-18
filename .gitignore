@@ -1,7 +1,6 @@
 # Burp Suite
 *.burp
 *.bak
-
 # Python
 __pycache__/
 *.py[cod]

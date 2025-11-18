@@ -2,7 +2,7 @@
 Automate your Akamai WAF security assessments with this powerful Burp Suite extension. Detect WAF presence, identify protection mechanisms, and test multiple bypass techniques—all within your favorite web security tool.
 # Burp Suite Akamai WAF Tester
 
-![Burp Extension](images/workflow.png)
+![Burp Extension]
 
 A comprehensive Burp Suite extension for detecting and testing Akamai Web Application Firewall (WAF) protections.
 

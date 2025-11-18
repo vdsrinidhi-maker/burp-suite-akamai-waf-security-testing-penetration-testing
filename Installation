@@ -1,0 +1,12 @@
+Installation and Usage
+Save the scripts as .py files
+
+In Burp Suite:
+
+Go to Extender → Extensions → Add
+
+Select Python as the type
+
+Choose the script file
+
+Click Next to load

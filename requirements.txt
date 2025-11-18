@@ -1,0 +1,6 @@
+# Burp Akamai WAF Tester Requirements
+# Note: Burp extensions use Jython, but these are for standalone testing
+
+# For any standalone components
+requests>=2.28.0
+urllib3>=1.26.0

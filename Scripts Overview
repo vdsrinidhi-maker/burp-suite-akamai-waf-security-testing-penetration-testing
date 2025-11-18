@@ -1,0 +1,45 @@
+Scripts Overview
+1. Akamai WAF Detector (akamai_waf_detector.py)
+Detects Akamai WAF presence through known signatures
+
+Tests common Akamai endpoints and headers
+
+Identifies WAF block pages and responses
+
+2. Akamai Bypass Tester (akamai_bypass_tester.py)
+Tests various WAF bypass techniques:
+
+URL encoding attacks
+
+Unicode normalization
+
+HTTP verb tampering
+
+Header injection
+
+Parameter pollution
+
+Example Results
+https://images/results-example.png
+
+Supported Akamai WAF Detection Methods
+Response header analysis
+
+Block page fingerprinting
+
+Known endpoint probing
+
+Status code analysis
+
+Content pattern matching
+
+Legal & Ethical Usage
+⚠️ Important: This tool is for authorized security testing only.
+
+Only use on systems you own or have explicit permission to test
+
+Comply with all applicable laws and regulations
+
+Respect terms of service and acceptable use policies
+
+The authors are not responsible for misuse

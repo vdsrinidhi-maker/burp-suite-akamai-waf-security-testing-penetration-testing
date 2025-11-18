@@ -1,0 +1,256 @@
+#!/usr/bin/env python
+# Akamai WAF Detection and Testing Script for Burp Suite
+# Compatible with Burp Extender (Jython)
+
+from burp import IBurpExtender, IScannerCheck, IScanIssue
+import re
+import json
+
+class BurpExtender(IBurpExtender, IScannerCheck):
+    
+    def registerExtenderCallbacks(self, callbacks):
+        self._callbacks = callbacks
+        self._helpers = callbacks.getHelpers()
+        callbacks.setExtensionName("Akamai WAF Tester")
+        callbacks.registerScannerCheck(self)
+        print("Akamai WAF Tester loaded successfully!")
+        
+    def doPassiveScan(self, baseRequestResponse):
+        return None
+        
+    def doActiveScan(self, baseRequestResponse, insertionPoint):
+        issues = []
+        
+        # Test for Akamai WAF detection
+        issues.extend(self.test_akamai_detection(baseRequestResponse, insertionPoint))
+        
+        # Test various WAF bypass techniques
+        issues.extend(self.test_waf_bypass(baseRequestResponse, insertionPoint))
+        
+        # Test specific Akamai signatures
+        issues.extend(self.test_akamai_signatures(baseRequestResponse, insertionPoint))
+        
+        return issues if issues else None
+    
+    def test_akamai_detection(self, baseRequestResponse, insertionPoint):
+        issues = []
+        detection_payloads = [
+            "/_astats",
+            "/_api/stats",
+            "/akamai/akamai-sureroute-test-object.html",
+            "/akamaighost",
+            "/akamai/akamai-index.html"
+        ]
+        
+        for payload in detection_payloads:
+            test_request = self.create_test_request(baseRequestResponse, insertionPoint, payload)
+            test_response = self._callbacks.makeHttpRequest(
+                baseRequestResponse.getHttpService(), test_request)
+            
+            response_info = self._helpers.analyzeResponse(test_response)
+            response_body = test_response[response_info.getBodyOffset():].tostring()
+            
+            # Check for Akamai signatures in response
+            if self.detect_akamai_response(response_body, response_info.getStatusCode()):
+                issue = CustomScanIssue(
+                    baseRequestResponse.getHttpService(),
+                    self._helpers.analyzeRequest(baseRequestResponse).getUrl(),
+                    [self._callbacks.applyMarkers(test_response, None, None)],
+                    "Akamai WAF Detected",
+                    "The application appears to be protected by Akamai WAF.",
+                    "High"
+                )
+                issues.append(issue)
+                break
+                
+        return issues
+    
+    def test_waf_bypass(self, baseRequestResponse, insertionPoint):
+        issues = []
+        
+        # SQL Injection bypass techniques
+        sql_payloads = [
+            "1' OR '1'='1",
+            "1' UNION SELECT 1,2,3--",
+            "1' AND 1=1--",
+            "' OR 1=1--",
+            "admin'--",
+            "1'/*!50000OR*/'1'='1"
+        ]
+        
+        # XSS bypass techniques
+        xss_payloads = [
+            "<script>alert(1)</script>",
+            "<img src=x onerror=alert(1)>",
+            "javascript:alert(1)",
+            "<svg onload=alert(1)>",
+            "'';!--\"<XSS>=&{()}",
+            "<script>prompt(1)</script>"
+        ]
+        
+        # Path traversal bypass techniques
+        path_payloads = [
+            "../../../../etc/passwd",
+            "....//....//etc/passwd",
+            "..%2f..%2f..%2f..%2fetc%2fpasswd",
+            "..%c0%af..%c0%af..%c0%af..%c0%afetc%2fpasswd"
+        ]
+        
+        all_payloads = sql_payloads + xss_payloads + path_payloads
+        
+        for payload in all_payloads:
+            test_request = self.create_test_request(baseRequestResponse, insertionPoint, payload)
+            test_response = self._callbacks.makeHttpRequest(
+                baseRequestResponse.getHttpService(), test_request)
+            
+            response_info = self._helpers.analyzeResponse(test_response)
+            
+            # Check for WAF blocks
+            if self.is_waf_blocked(response_info.getStatusCode(), test_response):
+                issue = CustomScanIssue(
+                    baseRequestResponse.getHttpService(),
+                    self._helpers.analyzeRequest(baseRequestResponse).getUrl(),
+                    [self._callbacks.applyMarkers(test_response, None, None)],
+                    "Akamai WAF Block Detected",
+                    "Akamai WAF blocked the payload: {}\n\nStatus Code: {}".format(
+                        payload, response_info.getStatusCode()),
+                    "Medium"
+                )
+                issues.append(issue)
+                
+        return issues
+    
+    def test_akamai_signatures(self, baseRequestResponse, insertionPoint):
+        issues = []
+        
+        # Akamai-specific test patterns
+        akamai_tests = [
+            # Known Akamai block patterns
+            ("akamai_origin_error", "AkamaiOriginError"),
+            ("akamai_ghost", "akamaighost"),
+            ("akamai", "X-Akamai-"),
+            ("edge_side", "EdgeSide")
+        ]
+        
+        for test_name, payload in akamai_tests:
+            test_request = self.create_test_request(baseRequestResponse, insertionPoint, payload)
+            test_response = self._callbacks.makeHttpRequest(
+                baseRequestResponse.getHttpService(), test_request)
+            
+            response_info = self._helpers.analyzeResponse(test_response)
+            response_body = test_response[response_info.getBodyOffset():].tostring()
+            
+            if payload.lower() in response_body.lower():
+                issue = CustomScanIssue(
+                    baseRequestResponse.getHttpService(),
+                    self._helpers.analyzeRequest(baseRequestResponse).getUrl(),
+                    [self._callbacks.applyMarkers(test_response, None, None)],
+                    "Akamai Signature Found",
+                    "Akamai-specific signature detected: {}".format(payload),
+                    "Information"
+                )
+                issues.append(issue)
+                
+        return issues
+    
+    def create_test_request(self, baseRequestResponse, insertionPoint, payload):
+        request = baseRequestResponse.getRequest()
+        return insertionPoint.buildRequest(payload)
+    
+    def detect_akamai_response(self, response_body, status_code):
+        akamai_indicators = [
+            "akamai",
+            "Akamai",
+            "AKAMAI",
+            "EdgeCast",
+            "Ghost",
+            "SureRoute",
+            "Access Denied",
+            "Denied by cache",
+            "AkamaiGHost"
+        ]
+        
+        # Check status codes that might indicate Akamai
+        if status_code in [403, 501, 503]:
+            return True
+            
+        # Check for Akamai headers or content
+        for indicator in akamai_indicators:
+            if indicator in response_body:
+                return True
+                
+        return False
+    
+    def is_waf_blocked(self, status_code, response):
+        response_info = self._helpers.analyzeResponse(response)
+        response_body = response[response_info.getBodyOffset():].tostring()
+        
+        # Common WAF block indicators
+        block_indicators = [
+            "access denied",
+            "forbidden",
+            "blocked",
+            "security policy",
+            "waf",
+            "firewall",
+            "not acceptable",
+            "unauthorized"
+        ]
+        
+        # Status codes that might indicate blocking
+        if status_code in [403, 406, 418, 429, 501, 503]:
+            return True
+            
+        # Check response content for block messages
+        for indicator in block_indicators:
+            if indicator in response_body.lower():
+                return True
+                
+        return False
+    
+    def consolidateDuplicateIssues(self, existingIssue, newIssue):
+        if existingIssue.getIssueName() == newIssue.getIssueName():
+            return -1
+        return 0
+
+class CustomScanIssue(IScanIssue):
+    def __init__(self, httpService, url, httpMessages, name, detail, severity):
+        self._httpService = httpService
+        self._url = url
+        self._httpMessages = httpMessages
+        self._name = name
+        self._detail = detail
+        self._severity = severity
+        
+    def getUrl(self):
+        return self._url
+        
+    def getIssueName(self):
+        return self._name
+        
+    def getIssueType(self):
+        return 0
+        
+    def getSeverity(self):
+        return self._severity
+        
+    def getConfidence(self):
+        return "Certain"
+        
+    def getIssueBackground(self):
+        return "Akamai WAF detection and testing module."
+        
+    def getRemediationBackground(self):
+        return "No remediation available - this is an informational finding about WAF presence."
+        
+    def getIssueDetail(self):
+        return self._detail
+        
+    def getRemediationDetail(self):
+        return None
+        
+    def getHttpMessages(self):
+        return self._httpMessages
+        
+    def getHttpService(self):
+        return self._httpService

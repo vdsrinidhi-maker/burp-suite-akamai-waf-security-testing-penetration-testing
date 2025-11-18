@@ -29,7 +29,7 @@ A comprehensive Burp Suite extension for detecting and testing Akamai Web Applic
 4. Select the script file and configure Jython
 5. Click **Next** to load the extension
 
-For detailed installation instructions, see [INSTALLATION.md](docs/INSTALLATION.md).
+For detailed installation instructions, see [INSTALLATION.md].
 
 ## Usage
 

